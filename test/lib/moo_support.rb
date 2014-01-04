@@ -6,6 +6,16 @@ require 'moo_err'
 require 'general_expression_parser'
 require 'fast_error_parser'
 
+class String
+
+  def binary_string_to_binary
+    self.gsub(/~([a-fA-F0-9]{2})/) do
+      [$1].pack('H*')
+    end
+  end
+
+end
+
 module MooSupport
 
   NOTHING = MooObj.new('#-1')
@@ -35,8 +45,8 @@ module MooSupport
   E_EXEC = MooErr.new('E_EXEC')
   E_INTRPT = MooErr.new('E_INTRPT')
 
-  TYPE_OBJ = 0
-  TYPE_INT = 1
+  TYPE_INT = 0
+  TYPE_OBJ = 1
   TYPE_ANON = 12
 
   raise '"./test.yml" configuration file not found' unless File.exists?('./test.yml')
@@ -201,8 +211,26 @@ module MooSupport
     end
   end
 
-  def value_hmac(str, key)
-    simplify command %Q|; return value_hmac(#{value_ref(str)}, #{value_ref(key)});|
+  def value_hmac(str, key, algo = nil)
+    if algo
+      simplify command %Q|; return value_hmac(#{value_ref(str)}, #{value_ref(key)}, #{value_ref(algo)});|
+    else
+      simplify command %Q|; return value_hmac(#{value_ref(str)}, #{value_ref(key)});|
+    end
+  end
+
+  ### Operations on Numbers
+
+  def random_bytes(count)
+    simplify command %Q|; return random_bytes(#{value_ref(count)});|
+  end
+
+  def random(max = nil)
+    if max
+      simplify command %Q|; return random(#{value_ref(max)});|
+    else
+      simplify command %Q|; return random();|
+    end
   end
 
   ### Operations on Strings
@@ -231,12 +259,28 @@ module MooSupport
     end
   end
 
-  def string_hmac(str, key)
-    simplify command %Q|; return string_hmac(#{value_ref(str)}, #{value_ref(key)});|
+  def string_hmac(str, key, algo = nil)
+    if algo
+      simplify command %Q|; return string_hmac(#{value_ref(str)}, #{value_ref(key)}, #{value_ref(algo)});|
+    else
+      simplify command %Q|; return string_hmac(#{value_ref(str)}, #{value_ref(key)});|
+    end
   end
 
-  def binary_hmac(str, key)
-    simplify command %Q|; return binary_hmac(#{value_ref(str)}, #{value_ref(key)});|
+  def binary_hmac(str, key, algo = nil)
+    if algo
+      simplify command %Q|; return binary_hmac(#{value_ref(str)}, #{value_ref(key)}, #{value_ref(algo)});|
+    else
+      simplify command %Q|; return binary_hmac(#{value_ref(str)}, #{value_ref(key)});|
+    end
+  end
+
+  def salt(prefix, input)
+    simplify command %Q|; return salt(#{value_ref(prefix)}, #{value_ref(input)});|
+  end
+
+  def crypt(key, setting)
+    simplify command %Q|; return crypt(#{value_ref(key)}, #{value_ref(setting)});|
   end
 
   ### Operations on Maps
@@ -645,6 +689,12 @@ module MooSupport
     else
       simplify command %|; return exec(#{value_ref(args)});|
     end
+  end
+
+  ## System Operations
+
+  def getenv(name)
+    simplify command %|; return getenv(#{value_ref(name)});|
   end
 
   protected

@@ -50,7 +50,7 @@ typedef struct {
      * the object number of the receiver of the verb invocation -- the
      * object number of the handler in the case of primitive values.
      */
-    Var this;
+    Var _this;
     Objid player;
     Objid progr;
     Objid recv;
@@ -82,11 +82,11 @@ typedef vmstruct *vm;
 /* call_verb will only return E_MAXREC, E_INVIND, E_VERBNF,
    or E_NONE.  the vm will only be changed if E_NONE is returned */
 extern enum error call_verb(Objid obj, const char *vname,
-			    Var this, Var args, int do_pass);
+			    Var _this, Var args, int do_pass);
 /* if your vname is already a moo str (via str_dup) then you can
    use this interface instead */
 extern enum error call_verb2(Objid obj, const char *vname,
-			     Var this, Var args, int do_pass);
+			     Var _this, Var args, int do_pass);
 
 extern int setup_activ_for_eval(Program * prog);
 
@@ -101,11 +101,11 @@ extern enum outcome do_forked_task(Program * prog, Var * rt_env,
 				   activation a, int f_id);
 extern enum outcome do_input_task(Objid user, Parsed_Command * pc,
 				  Objid recv, db_verb_handle vh);
-extern enum outcome do_server_verb_task(Var this, const char *verb,
+extern enum outcome do_server_verb_task(Var _this, const char *verb,
 					Var args, db_verb_handle h,
 					Objid player, const char *argstr,
 					Var * result, int do_db_tracebacks);
-extern enum outcome do_server_program_task(Var this, const char *verb,
+extern enum outcome do_server_program_task(Var _this, const char *verb,
 					   Var args, Var vloc,
 					   const char *verbname,
 					   Program * program, Objid progr,
@@ -133,96 +133,3 @@ extern void write_activ(activation a);
 extern int read_activ(activation * a, int which_vector);
 
 #endif
-
-/* 
- * $Log: execute.h,v $
- * Revision 1.8  2004/05/22 01:25:43  wrog
- * merging in WROGUE changes (W_SRCIP, W_STARTUP, W_OOB)
- *
- * Revision 1.7.2.2  2003/06/07 13:14:24  wrog
- * fix log entry
- *
- * Revision 1.7.2.1  2003/06/04 21:28:59  wrog
- * removed useless arguments from resume_from_previous_vm(), do_forked_task();
- * replaced current_task_kind with is_fg argument for do_task();
- * made enum task_kind internal to tasks.c
- *
- * Revision 1.7  2002/09/15 23:21:01  xplat
- * GNU indent normalization.
- *
- * Revision 1.6  2002/08/18 09:47:26  bjj
- * Finally made free_activation() take a pointer after noticing how !$%^&
- * much time it was taking in a particular profiling run.
- *
- * Revision 1.5  2001/03/12 05:10:54  bjj
- * Split out call_verb and call_verb2.  The latter must only be called with
- * strings that are already MOO strings (str_ref-able).
- *
- * Revision 1.4  1998/12/14 13:17:51  nop
- * Merge UNSAFE_OPTS (ref fixups); fix Log tag placement to fit CVS whims
- *
- * Revision 1.3  1997/03/05 08:41:49  bjj
- * A few malloc-friendly changes:  rt_stacks are now centrally allocated/freed
- * so that we can keep a pool of them handy.  rt_envs are similarly pooled.
- * Both revert to malloc/free for large requests.
- *
- * Revision 1.2  1997/03/03 04:18:40  nop
- * GNU Indent normalization
- *
- * Revision 1.1.1.1  1997/03/03 03:45:03  nop
- * LambdaMOO 1.8.0p5
- *
- * Revision 2.5  1996/03/10  01:20:08  pavel
- * Added new `caller()' entry point, for use by built-in fns.  Release 1.8.0.
- *
- * Revision 2.4  1996/02/08  06:25:47  pavel
- * Added support for in-DB traceback handling.  Updated copyright notice for
- * 1996.  Release 1.8.0beta1.
- *
- * Revision 2.3  1996/01/11  07:46:58  pavel
- * Added support for getting the value of a resumed task.
- * Release 1.8.0alpha5.
- *
- * Revision 2.2  1995/12/31  03:25:34  pavel
- * Removed extraneous #include "options.h".  Release 1.8.0alpha4.
- *
- * Revision 2.1  1995/12/11  07:58:55  pavel
- * Removed another silly use of `unsigned'.
- *
- * Release 1.8.0alpha2.
- *
- * Revision 2.0  1995/11/30  04:51:15  pavel
- * New baseline version, corresponding to release 1.8.0alpha1.
- *
- * Revision 1.10  1992/10/23  23:03:47  pavel
- * Added copyright notice.
- *
- * Revision 1.9  1992/10/21  03:02:35  pavel
- * Converted to use new automatic configuration system.
- *
- * Revision 1.8  1992/10/17  20:29:09  pavel
- * Changed return-type of read_activ() from char to int, for systems that use
- * unsigned chars.
- *
- * Revision 1.7  1992/09/25  21:11:03  pjames
- * Added error_pc to the activation data structure.
- *
- * Revision 1.6  1992/09/24  16:43:35  pavel
- * Added `task_timed_out' to the interface.
- *
- * Revision 1.5  1992/09/02  18:42:25  pavel
- * Fixed resume_from_previous_vm() to accept any MOO value as the resumption
- * value, instead of just strings.
- *
- * Revision 1.4  1992/08/31  22:27:38  pjames
- * Changed some `char *'s to `const char *'
- *
- * Revision 1.3  1992/08/10  17:44:28  pjames
- * Moved several functions declarations to eval_env.h and eval_vm.h
- *
- * Revision 1.2  1992/07/27  18:01:45  pjames
- * Changed name of ct_env to var_names
- *
- * Revision 1.1  1992/07/20  23:23:12  pavel
- * Initial RCS-controlled version.
- * */
