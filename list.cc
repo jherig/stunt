@@ -806,15 +806,40 @@ bf_strcmp(Var arglist, Byte next, void *vdata, Objid progr)
 }
 
 static package
-bf_index(Var arglist, Byte next, void *vdata, Objid progr)
-{				/* (source, what [, case-matters]) */
+bf_strtr(Var arglist, Byte next, void *vdata, Objid progr)
+{				/* (subject, from, to [, case_matters]) */
     Var r;
     int case_matters = 0;
 
-    if (arglist.v.list[0].v.num == 3)
+    if (arglist.v.list[0].v.num > 3)
+	case_matters = is_true(arglist.v.list[4]);
+    r.type = TYPE_STR;
+    r.v.str = str_dup(strtr(arglist.v.list[1].v.str, memo_strlen(arglist.v.list[1].v.str),
+			    arglist.v.list[2].v.str, memo_strlen(arglist.v.list[2].v.str),
+			    arglist.v.list[3].v.str, memo_strlen(arglist.v.list[3].v.str),
+			    case_matters));
+    free_var(arglist);
+    return make_var_pack(r);
+}
+
+static package
+bf_index(Var arglist, Byte next, void *vdata, Objid progr)
+{				/* (source, what [, case-matters [, offset]]) */
+    Var r;
+    int case_matters = 0;
+    int offset = 0;
+
+    if (arglist.v.list[0].v.num > 2)
 	case_matters = is_true(arglist.v.list[3]);
+    if (arglist.v.list[0].v.num > 3)
+	offset = arglist.v.list[4].v.num;
+    if (offset < 0) {
+	free_var(arglist);
+	return make_error_pack(E_INVARG);
+    }
     r.type = TYPE_INT;
-    r.v.num = strindex(arglist.v.list[1].v.str, arglist.v.list[2].v.str,
+    r.v.num = strindex(arglist.v.list[1].v.str + offset, memo_strlen(arglist.v.list[1].v.str) - offset,
+		       arglist.v.list[2].v.str, memo_strlen(arglist.v.list[2].v.str),
 		       case_matters);
 
     free_var(arglist);
@@ -823,15 +848,23 @@ bf_index(Var arglist, Byte next, void *vdata, Objid progr)
 
 static package
 bf_rindex(Var arglist, Byte next, void *vdata, Objid progr)
-{				/* (source, what [, case-matters]) */
+{				/* (source, what [, case-matters [, offset]]) */
     Var r;
 
     int case_matters = 0;
+    int offset = 0;
 
-    if (arglist.v.list[0].v.num == 3)
+    if (arglist.v.list[0].v.num > 2)
 	case_matters = is_true(arglist.v.list[3]);
+    if (arglist.v.list[0].v.num > 3)
+	offset = arglist.v.list[4].v.num;
+    if (offset > 0) {
+	free_var(arglist);
+	return make_error_pack(E_INVARG);
+    }
     r.type = TYPE_INT;
-    r.v.num = strrindex(arglist.v.list[1].v.str, arglist.v.list[2].v.str,
+    r.v.num = strrindex(arglist.v.list[1].v.str, memo_strlen(arglist.v.list[1].v.str) + offset,
+			arglist.v.list[2].v.str, memo_strlen(arglist.v.list[2].v.str),
 			case_matters);
 
     free_var(arglist);
@@ -1081,7 +1114,7 @@ check_subs_list(Var subs)
 static package
 bf_substitute(Var arglist, Byte next, void *vdata, Objid progr)
 {
-    int template_length, subject_length;
+    int template_length;
     const char *_template, *subject;
     Var subs, ans;
     package p;
@@ -1097,7 +1130,6 @@ bf_substitute(Var arglist, Byte next, void *vdata, Objid progr)
 	return make_error_pack(E_INVARG);
     }
     subject = subs.v.list[4].v.str;
-    subject_length = memo_strlen(subject);
 
     s = new_stream(template_length);
     TRY_STREAM;
@@ -1305,9 +1337,13 @@ register_list(void)
     register_function("match", 2, 3, bf_match, TYPE_STR, TYPE_STR, TYPE_ANY);
     register_function("rmatch", 2, 3, bf_rmatch, TYPE_STR, TYPE_STR, TYPE_ANY);
     register_function("substitute", 2, 2, bf_substitute, TYPE_STR, TYPE_LIST);
-    register_function("index", 2, 3, bf_index, TYPE_STR, TYPE_STR, TYPE_ANY);
-    register_function("rindex", 2, 3, bf_rindex, TYPE_STR, TYPE_STR, TYPE_ANY);
+    register_function("index", 2, 4, bf_index,
+		      TYPE_STR, TYPE_STR, TYPE_ANY, TYPE_INT);
+    register_function("rindex", 2, 4, bf_rindex,
+		      TYPE_STR, TYPE_STR, TYPE_ANY, TYPE_INT);
     register_function("strcmp", 2, 2, bf_strcmp, TYPE_STR, TYPE_STR);
     register_function("strsub", 3, 4, bf_strsub,
+		      TYPE_STR, TYPE_STR, TYPE_STR, TYPE_ANY);
+    register_function("strtr", 3, 4, bf_strtr,
 		      TYPE_STR, TYPE_STR, TYPE_STR, TYPE_ANY);
 }

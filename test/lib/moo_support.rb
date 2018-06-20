@@ -203,16 +203,20 @@ module MooSupport
     simplify command %Q|; return toliteral(#{value_ref(value)});|
   end
 
-  def value_hash(str, algo = nil)
-    if algo
+  def value_hash(str, algo = nil, binary = nil)
+    if binary
+      simplify command %Q|; return value_hash(#{value_ref(str)}, #{value_ref(algo)}, #{value_ref(binary)});|
+    elsif algo
       simplify command %Q|; return value_hash(#{value_ref(str)}, #{value_ref(algo)});|
     else
       simplify command %Q|; return value_hash(#{value_ref(str)});|
     end
   end
 
-  def value_hmac(str, key, algo = nil)
-    if algo
+  def value_hmac(str, key, algo = nil, binary = nil)
+    if binary
+      simplify command %Q|; return value_hmac(#{value_ref(str)}, #{value_ref(key)}, #{value_ref(algo)}, #{value_ref(binary)});|
+    elsif algo
       simplify command %Q|; return value_hmac(#{value_ref(str)}, #{value_ref(key)}, #{value_ref(algo)});|
     else
       simplify command %Q|; return value_hmac(#{value_ref(str)}, #{value_ref(key)});|
@@ -235,40 +239,92 @@ module MooSupport
 
   ### Operations on Strings
 
-  def encode_base64(str)
-    simplify command %Q|; return encode_base64(#{value_ref(str)});|
+  def strtr(source, from, to, case_matters = nil)
+    if case_matters
+      simplify command %Q|; return strtr(#{value_ref(source)}, #{value_ref(from)}, #{value_ref(to)}, #{value_ref(case_matters)});|
+    else
+      simplify command %Q|; return strtr(#{value_ref(source)}, #{value_ref(from)}, #{value_ref(to)});|
+    end
   end
 
-  def decode_base64(str)
-    simplify command %Q|; return decode_base64(#{value_ref(str)});|
+  def index(source, what, case_matters = nil, offset = nil)
+    if offset
+      simplify command %Q|; return index(#{value_ref(source)}, #{value_ref(what)}, #{value_ref(case_matters)}, #{value_ref(offset)});|
+    elsif case_matters
+      simplify command %Q|; return index(#{value_ref(source)}, #{value_ref(what)}, #{value_ref(case_matters)});|
+    else
+      simplify command %Q|; return index(#{value_ref(source)}, #{value_ref(what)});|
+    end
   end
 
-  def string_hash(str, algo = nil)
-    if algo
+  def rindex(source, what, case_matters = nil, offset = nil)
+    if offset
+      simplify command %Q|; return rindex(#{value_ref(source)}, #{value_ref(what)}, #{value_ref(case_matters)}, #{value_ref(offset)});|
+    elsif case_matters
+      simplify command %Q|; return rindex(#{value_ref(source)}, #{value_ref(what)}, #{value_ref(case_matters)});|
+    else
+      simplify command %Q|; return rindex(#{value_ref(source)}, #{value_ref(what)});|
+    end
+  end
+
+  def encode_binary(str)
+    simplify command %Q|; return encode_binary(#{value_ref(str)});|
+  end
+
+  def decode_binary(str)
+    simplify command %Q|; return decode_binary(#{value_ref(str)});|
+  end
+
+  def encode_base64(str, safe = nil)
+    if safe
+      simplify command %Q|; return encode_base64(#{value_ref(str)}, #{value_ref(safe)});|
+    else
+      simplify command %Q|; return encode_base64(#{value_ref(str)});|
+    end
+  end
+
+  def decode_base64(str, safe = nil)
+    if safe
+      simplify command %Q|; return decode_base64(#{value_ref(str)}, #{value_ref(safe)});|
+    else
+      simplify command %Q|; return decode_base64(#{value_ref(str)});|
+    end
+  end
+
+  def string_hash(str, algo = nil, binary = nil)
+    if binary
+      simplify command %Q|; return string_hash(#{value_ref(str)}, #{value_ref(algo)}, #{value_ref(binary)});|
+    elsif algo
       simplify command %Q|; return string_hash(#{value_ref(str)}, #{value_ref(algo)});|
     else
       simplify command %Q|; return string_hash(#{value_ref(str)});|
     end
   end
 
-  def binary_hash(str, algo = nil)
-    if algo
+  def binary_hash(str, algo = nil, binary = nil)
+    if binary
+      simplify command %Q|; return binary_hash(#{value_ref(str)}, #{value_ref(algo)}, #{value_ref(binary)});|
+    elsif algo
       simplify command %Q|; return binary_hash(#{value_ref(str)}, #{value_ref(algo)});|
     else
       simplify command %Q|; return binary_hash(#{value_ref(str)});|
     end
   end
 
-  def string_hmac(str, key, algo = nil)
-    if algo
+  def string_hmac(str, key, algo = nil, binary = nil)
+    if binary
+      simplify command %Q|; return string_hmac(#{value_ref(str)}, #{value_ref(key)}, #{value_ref(algo)}, #{value_ref(binary)});|
+    elsif algo
       simplify command %Q|; return string_hmac(#{value_ref(str)}, #{value_ref(key)}, #{value_ref(algo)});|
     else
       simplify command %Q|; return string_hmac(#{value_ref(str)}, #{value_ref(key)});|
     end
   end
 
-  def binary_hmac(str, key, algo = nil)
-    if algo
+  def binary_hmac(str, key, algo = nil, binary = nil)
+    if binary
+      simplify command %Q|; return binary_hmac(#{value_ref(str)}, #{value_ref(key)}, #{value_ref(algo)}, #{value_ref(binary)});|
+    elsif algo
       simplify command %Q|; return binary_hmac(#{value_ref(str)}, #{value_ref(key)}, #{value_ref(algo)});|
     else
       simplify command %Q|; return binary_hmac(#{value_ref(str)}, #{value_ref(key)});|

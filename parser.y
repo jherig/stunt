@@ -18,7 +18,7 @@
 
 /*************************************************************************/
 /* NOTE: If you add an #include here, make sure you properly update the  */
-/*       parser.o dependency line in the Makefile.			 */
+/*       parser.o dependency line in the Makefile.                       */
 /*************************************************************************/
 
 #include "my-ctype.h"
@@ -27,7 +27,7 @@
 #include "my-string.h"
 
 #include "ast.h"
-#include "code_gen.h" 
+#include "code_gen.h"
 #include "config.h"
 #include "functions.h"
 #include "keywords.h"
@@ -42,38 +42,38 @@
 #include "structures.h"
 #include "sym_table.h"
 #include "utils.h"
-#include "version.h" 
+#include "version.h"
 
-static Stmt    	       *prog_start;
-static int		dollars_ok;
-static DB_Version	language_version;
+static Stmt            *prog_start;
+static int              dollars_ok;
+static DB_Version       language_version;
 
-static void	error(const char *, const char *);
-static void	warning(const char *, const char *);
-static int	find_id(char *name);
-static void	yyerror(const char *s);
-static int	yylex(void);
+static void     error(const char *, const char *);
+static void     warning(const char *, const char *);
+static int      find_id(char *name);
+static void     yyerror(const char *s);
+static int      yylex(void);
 static Scatter *scatter_from_arglist(Arg_List *);
 static Scatter *add_scatter_item(Scatter *, Scatter *);
-static void	vet_scatter(Scatter *);
-static void	push_loop_name(const char *);
-static void	pop_loop_name(void);
-static void	suspend_loop_scope(void);
-static void	resume_loop_scope(void);
+static void     vet_scatter(Scatter *);
+static void     push_loop_name(const char *);
+static void     pop_loop_name(void);
+static void     suspend_loop_scope(void);
+static void     resume_loop_scope(void);
 
 enum loop_exit_kind { LOOP_BREAK, LOOP_CONTINUE };
 
-static void	check_loop_name(const char *, enum loop_exit_kind);
+static void     check_loop_name(const char *, enum loop_exit_kind);
 %}
 
 %union {
-  Stmt	       *stmt;
-  Expr	       *expr;
-  int		integer;
-  Objid		object;
+  Stmt         *stmt;
+  Expr         *expr;
+  int           integer;
+  Objid         object;
   double       *real;
-  char	       *string;
-  enum error	error;
+  char         *string;
+  enum error    error;
   Arg_List     *args;
   Map_List     *map;
   Cond_Arm     *arm;
@@ -81,33 +81,35 @@ static void	check_loop_name(const char *, enum loop_exit_kind);
   Scatter      *scatter;
 }
 
-%type	<stmt>   statements statement elsepart 
-%type	<arm>    elseifs
+%type   <stmt>   statements statement elsepart
+%type   <arm>    elseifs
 %type   <expr>   expr default
 %type   <args>   arglist ne_arglist codes
 %type   <map>    maplist
-%type	<except> except excepts
-%type	<string> opt_id
-%type	<scatter> scatter scatter_item
+%type   <except> except excepts
+%type   <string> opt_id
+%type   <scatter> scatter scatter_item
 
-%token	<integer> tINTEGER
-%token	<object> tOBJECT
-%token	<real> tFLOAT
-%token	<string> tSTRING tID
-%token	<error> tERROR
-%token	tIF tELSE tELSEIF tENDIF tFOR tIN tENDFOR tRETURN tFORK tENDFORK
+%token  <integer> tINTEGER
+%token  <object> tOBJECT
+%token  <real> tFLOAT
+%token  <string> tSTRING tID
+%token  <error> tERROR
+%token  tIF tELSE tELSEIF tENDIF tFOR tIN tENDFOR tRETURN tFORK tENDFORK
 %token  tWHILE tENDWHILE tTRY tENDTRY tEXCEPT tFINALLY tANY tBREAK tCONTINUE
 
-%token	tTO tARROW tMAP
+%token  tTO tARROW tMAP
 
-%right	'='
+%right  '='
 %nonassoc '?' '|'
-%left	tOR tAND
+%left   tOR tAND
 %left   tEQ tNE '<' tLE '>' tGE tIN
-%left	'+' '-'
-%left	'*' '/' '%'
-%right	'^'
-%left	'!' tUNARYMINUS
+%left   tBITOR tBITAND tBITXOR
+%left   tBITSHL tBITSHR
+%left   '+' '-'
+%left   '*' '/' '%'
+%right  '^'
+%left   '!' '~' tUNARYMINUS
 %nonassoc '.' ':' '[' '$'
 
 %%
@@ -272,13 +274,13 @@ statement:
 		}
 	| ';'
 		{ $$ = 0; }
-    	| tTRY statements excepts tENDTRY
+	| tTRY statements excepts tENDTRY
 		{
 		    $$ = alloc_stmt(STMT_TRY_EXCEPT);
 		    $$->s._catch.body = $2;
 		    $$->s._catch.excepts = $3;
 		}
-    	| tTRY statements tFINALLY statements tENDTRY
+	| tTRY statements tFINALLY statements tENDTRY
 		{
 		    $$ = alloc_stmt(STMT_TRY_FINALLY);
 		    $$->s.finally.body = $2;
@@ -318,7 +320,7 @@ excepts:
 	| excepts tEXCEPT
 		{
 		    Except_Arm *tmp = $1;
-		    int		count = 1;
+		    int        count = 1;
 		    
 		    while (tmp->next) {
 			tmp = tmp->next;
@@ -486,7 +488,7 @@ expr:
 		    $$ = alloc_expr(EXPR_CALL);
 		    if ((f_no = number_func_by_name($1)) == FUNC_NOT_FOUND) {
 			/* Replace with call_function("$1", @args) */
-			Expr	       *fname = alloc_var(TYPE_STR);
+			Expr           *fname = alloc_var(TYPE_STR);
 			Arg_List       *a = alloc_arg_list(ARG_NORMAL, fname);
 
 			fname->e.var.v.str = $1;
@@ -532,6 +534,18 @@ expr:
 		{
 		    $$ = alloc_binary(EXPR_OR, $1, $3);
 		}
+	| expr tBITOR expr
+		{
+		    $$ = alloc_binary(EXPR_BITOR, $1, $3);
+		}
+	| expr tBITAND expr
+		{
+		    $$ = alloc_binary(EXPR_BITAND, $1, $3);
+		}
+	| expr tBITXOR expr
+		{
+		    $$ = alloc_binary(EXPR_BITXOR, $1, $3);
+		}
 	| expr tEQ expr
 		{
 		    $$ = alloc_binary(EXPR_EQ, $1, $3);
@@ -560,6 +574,14 @@ expr:
 		{
 		    $$ = alloc_binary(EXPR_IN, $1, $3);
 		}
+	| expr tBITSHL expr
+		{
+		    $$ = alloc_binary(EXPR_BITSHL, $1, $3);
+		}
+	| expr tBITSHR expr
+		{
+		    $$ = alloc_binary(EXPR_BITSHR, $1, $3);
+		}
 	| '-' expr  %prec tUNARYMINUS
 		{
 		    if ($2->kind == EXPR_VAR
@@ -586,6 +608,11 @@ expr:
 		    $$ = alloc_expr(EXPR_NOT);
 		    $$->e.expr = $2;
 		}
+	| '~' expr
+		{
+		    $$ = alloc_expr(EXPR_COMPLEMENT);
+		    $$->e.expr = $2;
+		}
 	| '(' expr ')'
 		{ $$ = $2; }
 	| '{' arglist '}'
@@ -593,17 +620,17 @@ expr:
 		    $$ = alloc_expr(EXPR_LIST);
 		    $$->e.list = $2;
 		}
-        | '[' maplist ']'
-                {
-                    $$ = alloc_expr(EXPR_MAP);
-                    $$->e.map = $2;
-                }
-        | '[' ']'
-                {
-                    /* [] is the expression for an empty map */
-                    $$ = alloc_expr(EXPR_MAP);
-                    $$->e.map = 0;
-                }
+	| '[' maplist ']'
+		{
+		    $$ = alloc_expr(EXPR_MAP);
+		    $$->e.map = $2;
+		}
+	| '[' ']'
+		{
+		    /* [] is the expression for an empty map */
+		    $$ = alloc_expr(EXPR_MAP);
+		    $$->e.map = 0;
+		}
 	| expr '?' expr '|' expr
 		{
 		    $$ = alloc_expr(EXPR_COND);
@@ -640,9 +667,9 @@ default:
 	;
 
 maplist:
-          expr tMAP expr
-                { $$ = alloc_map_list($1, $3); }
-        | maplist ',' expr tMAP expr
+	  expr tMAP expr
+		{ $$ = alloc_map_list($1, $3); }
+	| maplist ',' expr tMAP expr
 		{
 		    Map_List *this_map = alloc_map_list($3, $5);
 
@@ -656,13 +683,13 @@ maplist:
 		    } else
 			$$ = this_map;
 		}
-        ;
+	;
 
 arglist:
 	  /* NOTHING */
 		{ $$ = 0; }
-        | ne_arglist
-                { $$ = $1; }
+	| ne_arglist
+		{ $$ = $1; }
 	;
 
 ne_arglist:
@@ -741,10 +768,10 @@ scatter_item:
 
 %%
 
-static int		lineno, nerrors, must_rename_keywords;
-static Parser_Client	client;
-static void	       *client_data;
-static Names	       *local_names;
+static int              lineno, nerrors, must_rename_keywords;
+static Parser_Client    client;
+static void            *client_data;
+static Names           *local_names;
 
 static int
 find_id(char *name)
@@ -814,9 +841,21 @@ follow(int expect, int ifyes, int ifno)     /* look ahead for >=, etc. */
     int c = lex_getc();
 
     if (c == expect)
-        return ifyes;
+	return ifyes;
     lex_ungetc(c);
     return ifno;
+}
+
+static int
+check_two_dots(void)     /* look ahead for .. but don't consume */
+{
+    int c1 = lex_getc();
+    int c2 = lex_getc();
+
+    lex_ungetc(c2);
+    lex_ungetc(c1);
+
+    return c1 == '.' && c2 == '.';
 }
 
 static Stream  *token_stream = 0;
@@ -824,7 +863,7 @@ static Stream  *token_stream = 0;
 static int
 yylex(void)
 {
-    int		c;
+    int c;
 
     reset_stream(token_stream);
 
@@ -895,17 +934,17 @@ start_over:
 	    int cc;
 
 	    lex_ungetc(cc = lex_getc()); /* peek ahead */
-	    if (isdigit(cc)) {	/* definitely floating-point */
+	    if (isdigit(cc)) {  /* definitely floating-point */
 		type = tFLOAT;
 		do {
 		    stream_add_char(token_stream, c);
 		    c = lex_getc();
 		} while (isdigit(c));
-	    } else if (stream_length(token_stream) == 0)
+	    } else if (stream_length(token_stream) == 0) {
 		/* no digits before or after `.'; not a number at all */
 		goto normal_dot;
-	    else if (cc != '.') {
-		/* Some digits before dot, not `..' */
+	    } else if (cc != '.') {
+		/* some digits before dot, not `..' */
 		type = tFLOAT;
 		stream_add_char(token_stream, c);
 		c = lex_getc();
@@ -967,7 +1006,7 @@ start_over:
 		if (t == tERROR)
 		    yylval.error = k->error;
 		return t;
-	    } else {		/* New keyword being used as an identifier */
+	    } else {  /* New keyword being used as an identifier */
 		if (!must_rename_keywords)
 		    warning("Renaming old use of new keyword: ", buf);
 		must_rename_keywords = 1;
@@ -996,17 +1035,22 @@ start_over:
     }
 
     switch(c) {
-      case '>':         return follow('=', tGE, '>');
-      case '<':         return follow('=', tLE, '<');
-      case '=':         return ((c = follow('=', tEQ, 0))
-				? c
-				: follow('>', tARROW, '='));
-      case '!':         return follow('=', tNE, '!');
-      case '|':         return follow('|', tOR, '|');
-      case '&':         return follow('&', tAND, '&');
+      case '^':         return check_two_dots() ? '^'
+			     : follow('.', tBITXOR, '^');
+      case '>':         return follow('>', 1, 0) ? tBITSHR
+			     : follow('=', tGE, '>');
+      case '<':         return follow('<', 1, 0) ? tBITSHL
+			     : follow('=', tLE, '<');
+      case '=':         return follow('=', 1, 0) ? tEQ
+			     : follow('>', tARROW, '=');
+      case '|':         return follow('.', 1, 0) ? tBITOR
+			     : follow('|', tOR, '|');
+      case '&':         return follow('.', 1, 0) ? tBITAND
+			     : follow('&', tAND, '&');
       case '-':         return follow('>', tMAP, '-');
+      case '!':         return follow('=', tNE, '!');
       normal_dot:
-      case '.':		return follow('.', tTO, '.');
+      case '.':         return follow('.', tTO, '.');
       default:          return c;
     }
 }
@@ -1049,7 +1093,7 @@ scatter_from_arglist(Arg_List *a)
 static void
 vet_scatter(Scatter *sc)
 {
-    int	seen_rest = 0, count = 0;
+    int seen_rest = 0, count = 0;
 
     for (; sc; sc = sc->next) {
 	if (sc->kind == SCAT_REST) {
@@ -1067,8 +1111,8 @@ vet_scatter(Scatter *sc)
 
 struct loop_entry {
     struct loop_entry  *next;
-    const char	       *name;
-    int			is_barrier;
+    const char         *name;
+    int                 is_barrier;
 };
 
 static struct loop_entry *loop_stack;
@@ -1141,7 +1185,7 @@ check_loop_name(const char *name, enum loop_exit_kind kind)
 	}
 	return;
     }
-    
+
     for (entry = loop_stack; entry && !entry->is_barrier; entry = entry->next)
 	if (entry->name  &&  mystrcasecmp(entry->name, name) == 0)
 	    return;
@@ -1155,9 +1199,9 @@ check_loop_name(const char *name, enum loop_exit_kind kind)
 Program *
 parse_program(DB_Version version, Parser_Client c, void *data)
 {
-    extern int	yyparse();
+    extern int  yyparse();
     Program    *prog;
-    
+
     if (token_stream == 0)
 	token_stream = new_stream(1024);
     unget_count = 0;
@@ -1170,7 +1214,7 @@ parse_program(DB_Version version, Parser_Client c, void *data)
     dollars_ok = 0; /* true when the special symbols `^' and `$' are valid */
     loop_stack = 0;
     language_version = version;
-    
+
     begin_code_allocation();
     yyparse();
     end_code_allocation(nerrors > 0);
@@ -1186,7 +1230,7 @@ parse_program(DB_Version version, Parser_Client c, void *data)
 	    myfree(entry, M_AST);
 	}
     }
-    
+
     if (nerrors == 0) {
 	if (must_rename_keywords) {
 	    /* One or more new keywords were used as identifiers in this code,
@@ -1228,18 +1272,18 @@ parse_program(DB_Version version, Parser_Client c, void *data)
 }
 
 struct parser_state {
-    Var		code;		/* a list of strings */
-    int		cur_string;	/* which string? */
-    int		cur_char;	/* which character in that string? */
-    Var		errors;		/* a list of strings */
+    Var         code;           /* a list of strings */
+    int         cur_string;     /* which string? */
+    int         cur_char;       /* which character in that string? */
+    Var         errors;         /* a list of strings */
 };
 
 static void
 my_error(void *data, const char *msg)
 {
-    struct parser_state	*state = (struct parser_state *) data;
-    Var			v;
-    
+    struct parser_state *state = (struct parser_state *) data;
+    Var                 v;
+
     v.type = TYPE_STR;
     v.v.str = str_dup(msg);
     state->errors = listappend(state->errors, v);
@@ -1248,10 +1292,10 @@ my_error(void *data, const char *msg)
 static int
 my_getc(void *data)
 {
-    struct parser_state	*state = (struct parser_state *) data;
-    Var			code;
-    char		c;
-    
+    struct parser_state *state = (struct parser_state *) data;
+    Var                 code;
+    char                c;
+
     code = state->code;
     if (task_timed_out  ||  state->cur_string > code.v.list[0].v.num)
 	return EOF;
@@ -1270,9 +1314,9 @@ static Parser_Client list_parser_client = { my_error, 0, my_getc };
 Program *
 parse_list_as_program(Var code, Var *errors)
 {
-    struct parser_state	state;
-    Program	       *program;
-    
+    struct parser_state state;
+    Program            *program;
+
     state.code = code;
     state.cur_string = 1;
     state.cur_char = 0;

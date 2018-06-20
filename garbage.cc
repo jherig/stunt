@@ -42,13 +42,14 @@
  * (Bacon and Rajan, 2001) for a description of the cycle collection
  * algorithm and the colors.  This implementation differs from the
  * algorithm described because it has to deal with objects that
- * may/must be finalized -- anonymous objects aren't immediately
+ * may/must be recycled -- anonymous objects aren't immediately
  * deleted when cyclic references are found.  Instead they are queued
  * up to have their `recycle()' verb called (if defined), which can
- * have the consequence of adding a reference and reinstating them.
- * The implementation below still identifies cyclic garbage, and
- * colors the values white.  However, instead of deleting the values,
- * it restores their refcounts and adds them to the same pending queue
+ * have the consequence of adding a reference to the object (albeit in
+ * an invalid state).  This is called "finalization".  The
+ * implementation below still identifies cyclic garbage, and colors
+ * the values white.  However, instead of deleting the values, it
+ * restores their refcounts and adds them to the same pending queue
  * that recycles anonymous objects that have no more references.
  */
 
@@ -144,7 +145,7 @@ gc_possible_root(Var v)
 {
     GC_Color color;
 
-    assert(is_collection(v));
+    assert(v.is_collection());
 
     if ((color = gc_get_color(VOID_PTR(v))) != GC_PURPLE && color != GC_GREEN && color != GC_YELLOW) {
 	gc_set_color(VOID_PTR(v), GC_PURPLE);
@@ -168,7 +169,7 @@ static int
 do_obj(void *data, Var v)
 {
     gc_func *fp = (gc_func *)data;
-    if (is_collection(v) && is_not_green(v))
+    if (v.is_collection() && is_not_green(v))
 	(*fp)(v);
     return 0;
 }
@@ -177,7 +178,7 @@ static int
 do_list(Var v, void *data, int first)
 {
     gc_func *fp = (gc_func *)data;
-    if (is_collection(v) && is_not_green(v))
+    if (v.is_collection() && is_not_green(v))
 	(*fp)(v);
     return 0;
 }
@@ -186,7 +187,7 @@ static int
 do_map(Var k, Var v, void *data, int first)
 {
     gc_func *fp = (gc_func *)data;
-    if (is_collection(v) && is_not_green(v))
+    if (v.is_collection() && is_not_green(v))
 	(*fp)(v);
     return 0;
 }
@@ -194,7 +195,7 @@ do_map(Var k, Var v, void *data, int first)
 static void
 for_all_children(Var v, gc_func *fp)
 {
-    if (is_object(v))
+    if (v.is_object())
 	db_for_all_propvals(v, do_obj, (void *)fp);
     else if (TYPE_LIST == v.type)
 	listforeach(v, do_list, (void *)fp);

@@ -20,6 +20,10 @@
 #include <fcntl.h>
 #include <sys/stat.h>
 
+#include <string>
+#include <sstream>
+#include <fstream>
+
 #include "my-types.h"		/* must be first on some systems */
 #include "my-signal.h"
 #include "my-stdarg.h"
@@ -56,11 +60,18 @@
 #include "utils.h"
 #include "version.h"
 
-static pid_t parent_pid;
-int in_child = 0;
+extern "C" {
+#include "linenoise.h"
+}
 
-static const char *shutdown_message = 0;	/* shut down if non-zero */
-static int in_emergency_mode = 0;
+static pid_t parent_pid;
+static bool in_child = false;
+
+static std::stringstream shutdown_message;
+static bool shutdown_triggered = false;
+
+static bool in_emergency_mode = false;
+
 static Var checkpointed_connections;
 
 typedef enum {
@@ -107,6 +118,9 @@ static struct pending_recycle *pending_free = 0;
 static struct pending_recycle *pending_head = 0;
 static struct pending_recycle *pending_tail = 0;
 static unsigned int pending_count = 0;
+
+/* used once when the server loads the database */
+static Var pending_list = new_list(0);
 
 static void
 free_shandle(shandle * h)
@@ -180,17 +194,15 @@ free_slistener(slistener * l)
 }
 
 static void
-send_shutdown_message(const char *msg)
+send_shutdown_message(const char *message)
 {
     shandle *h;
-    Stream *s = new_stream(100);
-    char *message;
+    std::stringstream s;
 
-    stream_printf(s, "*** Shutting down: %s ***", msg);
-    message = stream_contents(s);
+    s << "*** Shutting down: " << message << " ***";
+
     for (h = all_shandles; h; h = h->next)
-	network_send_line(h->nhandle, message, 1);
-    free_stream(s);
+	network_send_line(h->nhandle, s.str().c_str(), 1);
 }
 
 static void
@@ -211,6 +223,12 @@ abort_server(void)
     signal(SIGCHLD, SIG_DFL);
 
     abort();
+}
+
+static void
+output_to_log(const char *line)
+{
+    errlog("%s\n", line);
 }
 
 void
@@ -244,21 +262,20 @@ enum Fork_Result
 fork_server(const char *subtask_name)
 {
     pid_t pid;
-    Stream *s = new_stream(100);
+    std::stringstream s;
 
-    stream_printf(s, "Forking %s", subtask_name);
+    s << "Forking " << subtask_name;
+
     pid = fork();
     if (pid < 0) {
-	log_perror(stream_contents(s));
-	free_stream(s);
+	log_perror(s.str().c_str());
 	return FORK_ERROR;
-    }
-    free_stream(s);
-    if (pid == 0) {
-	in_child = 1;
+    } else if (pid == 0) {
+	in_child = true;
 	return FORK_CHILD;
-    } else
+    } else {
 	return FORK_PARENT;
+    }
 }
 
 static void
@@ -273,7 +290,8 @@ panic_signal(int sig)
 static void
 shutdown_signal(int sig)
 {
-    shutdown_message = "shutdown signal received";
+    shutdown_triggered = true;
+    shutdown_message << "shutdown signal received";
 }
 
 static void
@@ -292,7 +310,7 @@ call_checkpoint_notifier(int successful)
     args = new_list(1);
     args.v.list[1].type = TYPE_INT;
     args.v.list[1].v.num = successful;
-    run_server_task(-1, new_obj(SYSTEM_OBJECT), "checkpoint_finished", args, "", 0);
+    run_server_task(-1, Var::new_obj(SYSTEM_OBJECT), "checkpoint_finished", args, "", 0);
 }
 
 static void
@@ -312,13 +330,13 @@ child_completed_signal(int sig)
     }
 #else
 #if HAVE_WAIT3
-    while ((p = wait3(&status, WNOHANG, 0)) >= 0) {
+    while ((p = wait3(&status, WNOHANG, 0)) > 0) {
 	if (!exec_complete(p, WEXITSTATUS(status)))
 	    checkpoint_child = p;
     }
 #else
 #if HAVE_WAIT2
-    while ((p = wait2(&status, WNOHANG)) >= 0) {
+    while ((p = wait2(&status, WNOHANG)) > 0) {
 	if (!exec_complete(p, WEXITSTATUS(status)))
 	    checkpoint_child = p;
     }
@@ -406,16 +424,16 @@ call_notifier(Objid player, Objid handler, const char *verb_name)
     args = new_list(1);
     args.v.list[1].type = TYPE_OBJ;
     args.v.list[1].v.obj = player;
-    run_server_task(player, new_obj(handler), verb_name, args, "", 0);
+    run_server_task(player, Var::new_obj(handler), verb_name, args, "", 0);
 }
 
 int
 get_server_option(Objid oid, const char *name, Var * r)
 {
     if (((valid(oid) &&
-	  db_find_property(new_obj(oid), "server_options", r).ptr)
+	  db_find_property(Var::new_obj(oid), "server_options", r).ptr)
 	 || (valid(SYSTEM_OBJECT) &&
-	     db_find_property(new_obj(SYSTEM_OBJECT), "server_options", r).ptr))
+	     db_find_property(Var::new_obj(SYSTEM_OBJECT), "server_options", r).ptr))
 	&& r->type == TYPE_OBJ
 	&& valid(r->v.obj)
 	&& db_find_property(*r, name, r).ptr)
@@ -540,6 +558,13 @@ recycle_anonymous_objects(void)
     }
 }
 
+/* When the server checkpoints, all of the objects pending recycling
+ * are written to the database.  It is not safe to simply forget about
+ * these objects because recycling them will call their `recycle()'
+ * verb (if defined) which may have the effect of making them non-lost
+ * again.
+ */
+
 void
 write_values_pending_finalization(void)
 {
@@ -553,26 +578,29 @@ write_values_pending_finalization(void)
     }
 }
 
+/* When the server loads the database, the objects pending recycling
+ * are read in as well.  However, at the point that this function is
+ * called, these objects are empty slots that will hold to-be-built
+ * anonymous objects.  By the time `main_loop()' is called and they
+ * are to be recycled, they are proper anonymous objects.  In between,
+ * just track them.
+ */
+
 int
 read_values_pending_finalization(void)
 {
-    int count;
-    Var v;
+    int i, count;
 
     if (dbio_scanf("%d values pending finalization\n", &count) != 1) {
 	errlog("READ_VALUES_PENDING_FINALIZATION: Bad count.\n");
 	return 0;
     }
 
-    for (; count > 0; count--) {
-	v = dbio_read_var();
+    free_var(pending_list);
+    pending_list = new_list(count);
 
-	/* in theory this could be any value... */
-	/* in practice this will be an anonymous object... */
-	assert(TYPE_ANON == v.type);
-
-	if (v.v.anon != NULL)
-	    queue_anonymous_object(v);
+    for (i = 1; i <= count; i++) {
+	pending_list.v.list[i] = dbio_read_var();
     }
 
     return 1;
@@ -583,7 +611,22 @@ main_loop(void)
 {
     int i;
 
-    /* First, notify DB of disconnections for all checkpointed connections */
+    /* First, queue anonymous objects */
+    for (i = 1; i <= pending_list.v.list[0].v.num; i++) {
+	Var v;
+
+	v = pending_list.v.list[i];
+
+	/* in theory this could be any value... */
+	/* in practice this will be an anonymous object... */
+	assert(TYPE_ANON == v.type);
+
+	if (v.v.anon != NULL)
+	    queue_anonymous_object(var_ref(v));
+    }
+    free_var(pending_list);
+
+    /* Second, notify DB of disconnections for all checkpointed connections */
     for (i = 1; i <= checkpointed_connections.v.list[0].v.num; i++) {
 	Var v;
 
@@ -593,12 +636,12 @@ main_loop(void)
     }
     free_var(checkpointed_connections);
 
-    /* Second, run #0:server_started() */
-    run_server_task(-1, new_obj(SYSTEM_OBJECT), "server_started", new_list(0), "", 0);
+    /* Third, run #0:server_started() */
+    run_server_task(-1, Var::new_obj(SYSTEM_OBJECT), "server_started", new_list(0), "", 0);
     set_checkpoint_timer(1);
 
     /* Now, we enter the main server loop */
-    while (shutdown_message == 0) {
+    while (!shutdown_triggered) {
 	/* Check how long we have until the next task will be ready to run.
 	 * We only care about three cases (== 0, == 1, and > 1), so we can
 	 * map a `never' result from the task subsystem into 2.
@@ -617,7 +660,7 @@ main_loop(void)
 	    if (checkpoint_requested == CHKPT_SIGNAL)
 		oklog("CHECKPOINTING due to remote request signal.\n");
 	    checkpoint_requested = CHKPT_OFF;
-	    run_server_task(-1, new_obj(SYSTEM_OBJECT), "checkpoint_started",
+	    run_server_task(-1, Var::new_obj(SYSTEM_OBJECT), "checkpoint_started",
 			    new_list(0), "", 0);
 	    network_process_io(0);
 #ifdef UNFORKED_CHECKPOINTS
@@ -696,8 +739,8 @@ main_loop(void)
 	}
     }
 
-    oklog("SHUTDOWN: %s\n", shutdown_message);
-    send_shutdown_message(shutdown_message);
+    applog(LOG_WARNING, "SHUTDOWN: %s\n", shutdown_message.str().c_str());
+    send_shutdown_message(shutdown_message.str().c_str());
 }
 
 static shandle *
@@ -758,33 +801,26 @@ server_connection_options(shandle * h, Var list)
 
 #undef SERVER_CO_TABLE
 
-static char *
-read_stdin_line()
+static const char *
+read_stdin_line(const char *prompt)
 {
     static Stream *s = 0;
-    char *line, buffer[1000];
-    int buflen;
 
-    fflush(stdout);
     if (!s)
 	s = new_stream(100);
 
-    do {			/* Read even a very long line of input */
-	fgets(buffer, sizeof(buffer), stdin);
-	buflen = strlen(buffer);
-	if (buflen == 0)
-	    return 0;
-	if (buffer[buflen - 1] == '\n') {
-	    buffer[buflen - 1] = '\0';
-	    buflen--;
-	}
-	stream_add_string(s, buffer);
-    } while (buflen == sizeof(buffer) - 1);
-    line = reset_stream(s);
-    while (*line == ' ')
-	line++;
+    fflush(stdout);
 
-    return line;
+    char *line;
+
+    if ((line = linenoise(prompt)) && *line) {
+	linenoiseHistoryAdd(line);
+	stream_add_string(s, line);
+	free(line);
+	return reset_stream(s);
+    }
+
+    return (char *)"";
 }
 
 static void
@@ -796,7 +832,7 @@ emergency_notify(Objid player, const char *line)
 static int
 emergency_mode()
 {
-    char *line;
+    const char *line;
     Var words;
     int nargs;
     const char *command;
@@ -806,7 +842,7 @@ emergency_mode()
     int start_ok = -1;
 
     oklog("EMERGENCY_MODE: Entering mode...\n");
-    in_emergency_mode = 1;
+    in_emergency_mode = true;
 
     printf("\nLambdaMOO Emergency Holographic Wizard Mode\n");
     printf("-------------------------------------------\n");
@@ -830,7 +866,7 @@ emergency_mode()
 	    if (!is_wizard(wizard)) {
 		if (first_valid < 0) {
 		    first_valid = db_create_object();
-		    db_change_parents(new_obj(first_valid), new_list(0), none);
+		    db_change_parents(Var::new_obj(first_valid), new_list(0), none);
 		    printf("** No objects in database; created #%d.\n",
 			   first_valid);
 		}
@@ -838,10 +874,11 @@ emergency_mode()
 		db_set_object_flag(wizard, FLAG_WIZARD);
 		printf("** No wizards in database; wizzed #%d.\n", wizard);
 	    }
-	    printf("** Now running emergency commands as #%d ...\n", wizard);
+	    printf("** Now running emergency commands as #%d ...\n\n", wizard);
 	}
-	printf("\nMOO (#%d)%s: ", wizard, debug ? "" : "[!d]");
-	line = read_stdin_line();
+        char prompt[100];
+        sprintf(prompt, "(#%d)%s: ", wizard, debug ? "" : "[!d]");
+	line = read_stdin_line(prompt);
 
 	if (!line)
 	    start_ok = 0;	/* treat EOF as "quit" */
@@ -867,7 +904,7 @@ emergency_mode()
 		printf("Type one or more lines of code, ending with `.' ");
 		printf("alone on a line.\n");
 		for (;;) {
-		    line = read_stdin_line();
+		    line = read_stdin_line(" ");
 		    if (!strcmp(line, "."))
 			break;
 		    else {
@@ -933,13 +970,13 @@ emergency_mode()
 		printf("%s\n", message);
 		if (h.ptr) {
 		    Var code, str, errors;
-		    char *line;
+		    const char *line;
 		    Program *program;
 
 		    code = new_list(0);
 		    str.type = TYPE_STR;
 
-		    while (strcmp(line = read_stdin_line(), ".")) {
+		    while (strcmp(line = read_stdin_line(" "), ".")) {
 			str.v.str = str_dup(line);
 			code = listappend(code, str);
 		    }
@@ -996,14 +1033,10 @@ emergency_mode()
 	    } else if (!mystrcasecmp(command, "wizard") && nargs == 1
 		       && sscanf(words.v.list[2].v.str, "#%d", &wizard) == 1) {
 		printf("** Switching to wizard #%d...\n", wizard);
-	    } else {
-		if (mystrcasecmp(command, "help")
-		    && mystrcasecmp(command, "?"))
-		    printf("** Unknown or malformed command.\n");
-
+	    } else if (!mystrcasecmp(command, "help") || !mystrcasecmp(command, "?")) {
 		printf(";EXPR                 "
 		       "Evaluate MOO expression, print result.\n");
-		printf(";;CODE	              "
+		printf(";;CODE                "
 		       "Execute whole MOO verb, print result.\n");
 		printf("    (For above, omitting EXPR or CODE lets you "
 		       "enter several lines\n");
@@ -1027,10 +1060,10 @@ emergency_mode()
 		       "Exit server *without* saving database.\n");
 		printf("help, ?               "
 		       "Print this text.\n\n");
-
 		printf("NOTE: *NO* forked or suspended tasks will run "
 		       "until you exit this mode.\n\n");
-		printf("\"Please remember to turn me off when you go...\"\n");
+	    } else {
+		printf("** Unknown or malformed command.\n");
 	    }
 
 	    free_var(words);
@@ -1043,7 +1076,7 @@ emergency_mode()
 #endif
 
     free_stream(s);
-    in_emergency_mode = 0;
+    in_emergency_mode = false;
     oklog("EMERGENCY_MODE: Leaving mode; %s continue...\n",
 	  start_ok ? "will" : "won't");
     return start_ok;
@@ -1056,7 +1089,7 @@ run_do_start_script(Var code)
     Var result;
 
     switch (run_server_task(NOTHING,
-			    new_obj(SYSTEM_OBJECT), "do_start_script", code, "",
+			    Var::new_obj(SYSTEM_OBJECT), "do_start_script", code, "",
 			    &result)) {
     case OUTCOME_DONE:
 	unparse_value(s, result);
@@ -1089,35 +1122,21 @@ do_script_line(const char *line)
 static void
 do_script_file(const char *path)
 {
-    struct stat buf;
-    FILE *f;
-    static Stream *s = 0;
-    int c;
     Var str;
     Var code = new_list(0);
+    std::ifstream file(path);
+    std::string line;
 
-    if (stat(path, &buf) != 0)
+    if (!file.is_open()) {
 	panic(strerror(errno));
-    else if (S_ISDIR(buf.st_mode))
-      panic(strerror(EISDIR));
-    else if ((f = fopen(path, "r")) == NULL)
-	panic(strerror(errno));
-
-    if (s == 0)
-	s = new_stream(1024);
-
-    do {
-	while((c = fgetc(f)) != EOF && c != '\n')
-	    stream_add_char(s, c);
-
-	str = str_dup_to_var(raw_bytes_to_clean(stream_contents(s),
-						stream_length(s)));
-
+    }
+    while (std::getline(file, line)) {
+	str = str_dup_to_var(raw_bytes_to_clean(line.c_str(), line.size()));
 	code = listappend(code, str);
-
-	reset_stream(s);
-
-    } while (c != EOF);
+    }
+    if (errno) {
+	panic(strerror(errno));
+    }
 
     run_do_start_script(code);
 }
@@ -1600,8 +1619,16 @@ main(int argc, char **argv)
 	    perror("Error opening specified log file");
 	    exit(1);
 	}
-    } else
+    } else {
 	set_log_file(stderr);
+    }
+
+    applog(LOG_INFO1, "           _____                ______\n");
+    applog(LOG_INFO1, "  ___________  /_____  _________ __  /_\n");
+    applog(LOG_INFO1, "   __  ___/_  __/_  / / /__  __ \\_  __/\n");
+    applog(LOG_INFO1, "   _(__  ) / /_  / /_/ / _  / / // /_\n");
+    applog(LOG_INFO1, "   /____/  \\__/  \\__,_/  /_/ /_/ \\__/\n");
+    applog(LOG_INFO1, "\n");
 
     if ((emergency && (script_file || script_line))
 	|| !db_initialize(&argc, &argv)
@@ -1629,7 +1656,7 @@ main(int argc, char **argv)
 
     parent_pid = getpid();
 
-    oklog("STARTING: Version %s of the Stunt/LambdaMOO server\n", server_version);
+    applog(LOG_INFO1, "STARTING: Version %s of the Stunt/LambdaMOO server\n", server_version);
     oklog("          (Using %s protocol)\n", network_protocol_name());
     oklog("          (Task timeouts measured in %s seconds.)\n",
 	  virtual_timer_available()? "server CPU" : "wall-clock");
@@ -1646,6 +1673,8 @@ main(int argc, char **argv)
 
     if (!db_load())
 	exit(1);
+
+    free_reordered_rt_env_values();
 
     load_server_options();
 
@@ -1738,33 +1767,28 @@ bf_reset_max_object(Var arglist, Byte next, void *vdata, Objid progr)
 static package
 bf_memory_usage(Var arglist, Byte next, void *vdata, Objid progr)
 {
-    Var r;
-    r = memory_usage();
+    Var r = new_list(0);
+
     free_var(arglist);
+
     return make_var_pack(r);
 }
 
 static package
 bf_shutdown(Var arglist, Byte next, void *vdata, Objid progr)
 {
-    /*
-     * The stream 's' and its contents will leak, but we're shutting down,
-     * so it doesn't really matter.
-     */
-
-    Stream *s;
     int nargs = arglist.v.list[0].v.num;
-    const char *msg = (nargs >= 1 ? arglist.v.list[1].v.str : 0);
+    const char *message = (nargs >= 1 ? arglist.v.list[1].v.str : 0);
 
     if (!is_wizard(progr)) {
 	free_var(arglist);
 	return make_error_pack(E_PERM);
     }
-    s = new_stream(100);
-    stream_printf(s, "shutdown() called by %s", object_name(progr));
-    if (msg)
-	stream_printf(s, ": %s", msg);
-    shutdown_message = stream_contents(s);
+
+    shutdown_triggered = true;
+    shutdown_message << "shutdown() called by " << object_name(progr);
+    if (message)
+	shutdown_message << ": " << message;
 
     free_var(arglist);
     return no_var_pack();
@@ -2177,6 +2201,18 @@ bf_buffered_output_length(Var arglist, Byte next, void *vdata, Objid progr)
     return make_var_pack(r);
 }
 
+static package
+bf_process_id(Var arglist, Byte next, void *vdata, Objid progr)
+{
+    free_var(arglist);
+
+    Var taskid;
+    taskid.type = TYPE_INT;
+    taskid.v.num = getpid();
+
+    return make_var_pack(taskid);
+}
+
 void
 register_server(void)
 {
@@ -2184,6 +2220,7 @@ register_server(void)
     register_function("renumber", 1, 1, bf_renumber, TYPE_OBJ);
     register_function("reset_max_object", 0, 0, bf_reset_max_object);
     register_function("memory_usage", 0, 0, bf_memory_usage);
+    register_function("process_id", 0, 0, bf_process_id);
     register_function("shutdown", 0, 1, bf_shutdown, TYPE_STR);
     register_function("dump_database", 0, 0, bf_dump_database);
     register_function("db_disk_size", 0, 0, bf_db_disk_size);

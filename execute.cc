@@ -63,6 +63,10 @@ static Timer_ID task_alarm_id;
 static const char *handler_verb_name;	/* For in-DB traceback handling */
 static Var handler_verb_args;
 
+/* used when loading the database to hold values that may reference yet
+   unloaded anonymous objects */
+static Var temp_vars = new_list(0);
+
 /* macros to ease indexing into activation stack */
 #define RUN_ACTIV     activ_stack[top_activ_stack]
 #define CALLER_ACTIV  activ_stack[top_activ_stack - 1]
@@ -157,10 +161,10 @@ print_error_backtrace(const char *msg, void (*output) (const char *))
     free_stream(str);
 }
 
-void
+static void
 output_to_log(const char *line)
 {
-    oklog("%s\n", line);
+    applog(LOG_INFO2, "%s\n", line);
 }
 
 static Var backtrace_list;
@@ -422,9 +426,9 @@ make_stack_list(activation * stack, int start, int end, int include_end,
 	    v = r.v.list[j++] = new_list(line_numbers_too ? 6 : 5);
 	    v.v.list[1] = anonymizing_var_ref(stack[i]._this, progr);
 	    v.v.list[2] = str_ref_to_var(stack[i].verb);
-	    v.v.list[3] = new_obj(stack[i].progr);
+	    v.v.list[3] = Var::new_obj(stack[i].progr);
 	    v.v.list[4] = anonymizing_var_ref(stack[i].vloc, progr);
-	    v.v.list[5] = new_obj(stack[i].player);
+	    v.v.list[5] = Var::new_obj(stack[i].player);
 	    if (line_numbers_too) {
 		v.v.list[6].type = TYPE_INT;
 		v.v.list[6].v.num = find_line_number(stack[i].prog,
@@ -634,7 +638,7 @@ call_verb2(Objid recv, const char *vname, Var _this, Var args, int do_pass)
 	    int i, c;
 	    FOR_EACH(parent, parents, i, c) {
 		where = parent.v.obj;
-		h = db_find_callable_verb(new_obj(where), vname);
+		h = db_find_callable_verb(Var::new_obj(where), vname);
 		if (h.ptr)
 		    break;
 	    }
@@ -646,7 +650,7 @@ call_verb2(Objid recv, const char *vname, Var _this, Var args, int do_pass)
 	    where = parents.v.obj;
 	    if (!valid(where))
 		return E_INVIND;
-	    h = db_find_callable_verb(new_obj(where), vname);
+	    h = db_find_callable_verb(Var::new_obj(where), vname);
 	}
 	else {
 	    return E_VERBNF;
@@ -656,7 +660,7 @@ call_verb2(Objid recv, const char *vname, Var _this, Var args, int do_pass)
 	if (TYPE_ANON == _this.type && is_valid(_this))
 	    h = db_find_callable_verb(_this, vname);
 	else if (valid(recv))
-	    h = db_find_callable_verb(new_obj(recv), vname);
+	    h = db_find_callable_verb(Var::new_obj(recv), vname);
 	else
 	    return E_INVIND;
     }
@@ -955,7 +959,7 @@ do {								\
 		key = POP(); /* any except list or map */
 		value = POP(); /* any */
 		map = POP(); /* should be map */
-		if (map.type != TYPE_MAP || is_collection(key)) {
+		if (map.type != TYPE_MAP || key.is_collection()) {
 		    free_var(key);
 		    free_var(value);
 		    free_var(map);
@@ -1042,7 +1046,7 @@ do {								\
 		     list.type != TYPE_MAP)
 		    || ((list.type == TYPE_LIST || list.type == TYPE_STR) &&
 			index.type != TYPE_INT)
-		    || (list.type == TYPE_MAP && is_collection(index))
+		    || (list.type == TYPE_MAP && index.is_collection())
 		    || (list.type == TYPE_STR && value.type != TYPE_STR)) {
 		    free_var(value);
 		    free_var(index);
@@ -1364,7 +1368,7 @@ do {								\
 		     list.type != TYPE_MAP) ||
 		    ((list.type == TYPE_LIST || list.type == TYPE_STR) &&
 		     index.type != TYPE_INT) ||
-		    (list.type == TYPE_MAP && is_collection(index))) {
+		    (list.type == TYPE_MAP && index.is_collection())) {
 		    free_var(index);
 		    free_var(list);
 		    PUSH_ERROR(E_TYPE);
@@ -1434,7 +1438,7 @@ do {								\
 		if (list.type == TYPE_MAP) {
 		    Var value;
 		    const rbnode *node;
-		    if (is_collection(index)) {
+		    if (index.is_collection()) {
 			PUSH_ERROR(E_TYPE);
 		    } else if (!(node = maplookup(list, index, &value, 0))) {
 			PUSH_ERROR(E_RANGE);
@@ -1473,7 +1477,7 @@ do {								\
 		    free_var(base);
 		    PUSH_ERROR(E_TYPE);
 		} else if (base.type == TYPE_MAP
-			   && (is_collection(to) || is_collection(from))) {
+			   && (to.is_collection() || from.is_collection())) {
 		    free_var(to);
 		    free_var(from);
 		    free_var(base);
@@ -1489,7 +1493,7 @@ do {								\
 		    int rel = compare(from, to, 0);
 		    mapseek(base, from, &iterfrom, 0);
 		    mapseek(base, to, &iterto, 0);
-		    if ((rel <= 0) && (is_none(iterfrom) || is_none(iterto))) {
+		    if ((rel <= 0) && (iterfrom.is_none() || iterto.is_none())) {
 			free_var(to);
 			free_var(from);
 			free_var(iterto);
@@ -1558,7 +1562,7 @@ do {								\
 
 		propname = POP();	/* should be string */
 		obj = POP();		/* should be an object */
-		if (!is_object(obj) || propname.type != TYPE_STR) {
+		if (!obj.is_object() || propname.type != TYPE_STR) {
 		    free_var(propname);
 		    free_var(obj);
 		    PUSH_ERROR(E_TYPE);
@@ -1596,7 +1600,7 @@ do {								\
 
 		propname = TOP_RT_VALUE;	/* should be string */
 		obj = NEXT_TOP_RT_VALUE;	/* should be an object */
-		if (!is_object(obj) || propname.type != TYPE_STR)
+		if (!obj.is_object() || propname.type != TYPE_STR)
 		    PUSH_ERROR(E_TYPE);
 		else if (!is_valid(obj))
 		    PUSH_ERROR(E_INVIND);
@@ -1627,7 +1631,7 @@ do {								\
 		rhs = POP();		/* any type */
 		propname = POP();	/* should be string */
 		obj = POP();		/* should be an object */
-		if (!is_object(obj) || propname.type != TYPE_STR) {
+		if (!obj.is_object() || propname.type != TYPE_STR) {
 		    free_var(rhs);
 		    free_var(propname);
 		    free_var(obj);
@@ -1657,7 +1661,7 @@ do {								\
 			    if (rhs.type != TYPE_STR)
 				err = E_TYPE;
 			    else if (!is_wizard(progr) &&
-				     ((is_obj(obj) && is_user(obj.v.obj)) ||
+				     ((obj.is_obj() && is_user(obj.v.obj)) ||
 				      bi_prop_protected(built_in, progr) ||
 				      progr != db_object_owner2(obj)))
 				err = E_PERM;
@@ -1672,7 +1676,7 @@ do {								\
 			case BP_WIZARD:
 			    if (!is_wizard(progr))
 				err = E_PERM;
-			    else if (!is_obj(obj))
+			    else if (!obj.is_obj())
 				err = E_INVARG;
 			    else if (built_in == BP_WIZARD
 			     && !is_true(rhs) != !is_wizard(obj.v.obj)) {
@@ -1681,7 +1685,7 @@ do {								\
 				 */
 				/* First make sure traceback will be accurate. */
 				STORE_STATE_VARIABLES();
-				oklog("%sWIZARDED: #%d by programmer #%d\n",
+				applog(LOG_WARNING, "%sWIZARDED: #%d by programmer #%d\n",
 				      is_wizard(obj.v.obj) ? "DE" : "",
 				      obj.v.obj, progr);
 				print_error_backtrace(is_wizard(obj.v.obj)
@@ -1760,7 +1764,7 @@ do {								\
 
 		if (args.type != TYPE_LIST || verb.type != TYPE_STR)
 		    err = E_TYPE;
-		else if (is_object(obj) && !is_valid(obj))
+		else if (obj.is_object() && !is_valid(obj))
 		    err = E_INVIND;
 		else {
 		    Objid recv = NOTHING;
@@ -1772,7 +1776,7 @@ do {								\
 		     * object that points us to the prototype/handler
 		     * for the primitive type.
 		     */
-		    Var system = new_obj(SYSTEM_OBJECT);
+		    Var system = Var::new_obj(SYSTEM_OBJECT);
 
 #define		    MATCH_TYPE(t1, t2)						\
 			else if (obj.type == TYPE_##t1) {			\
@@ -1794,7 +1798,7 @@ do {								\
 
 		    free_var(system);
 
-		    if (is_object(obj) || recv != NOTHING) {
+		    if (obj.is_object() || recv != NOTHING) {
 			STORE_STATE_VARIABLES();
 			err = call_verb2(recv, verb.v.str, obj, args, 0);
 			/* if there is no error, RUN_ACTIV is now the CALLEE's.
@@ -1925,7 +1929,7 @@ do {								\
 			    free_var(value);
 			    PUSH_ERROR(E_TYPE);
 			} else if (base.type == TYPE_MAP
-				   && (is_collection(to) || is_collection(from))) {
+				   && (to.is_collection() || from.is_collection())) {
 			    free_var(to);
 			    free_var(from);
 			    free_var(base);
@@ -1943,7 +1947,7 @@ do {								\
 			    Var iterfrom, iterto;
 			    mapseek(base, from, &iterfrom, 0);
 			    mapseek(base, to, &iterto, 0);
-			    if (is_none(iterfrom) || is_none(iterto)) {
+			    if (iterfrom.is_none() || iterto.is_none()) {
 				free_var(to);
 				free_var(from);
 				free_var(iterto);
@@ -2267,7 +2271,7 @@ do {								\
 				       : BASE.v.list[0].v.num);
 			    if (ITER.type == TYPE_NONE) {
 				free_var(ITER);
-				ITER = new_int(1);
+				ITER = Var::new_int(1);
 			    }
 			    if (ITER.v.num > len) {
 				free_var(POP());
@@ -2329,7 +2333,7 @@ do {								\
 				       : BASE.v.list[0].v.num);
 			    if (ITER.type == TYPE_NONE) {
 				free_var(ITER);
-				ITER = new_int(1);
+				ITER = Var::new_int(1);
 			    }
 			    if (ITER.v.num > len) {
 				free_var(POP());
@@ -2369,6 +2373,101 @@ do {								\
 			}
 #			undef ITER
 #			undef BASE
+		    }
+		    break;
+
+		case EOP_BITOR:
+		case EOP_BITAND:
+		case EOP_BITXOR:
+		    {
+			Var rhs, lhs, ans;
+
+			rhs = POP();
+			lhs = POP();
+			if (lhs.type == TYPE_INT && rhs.type == TYPE_INT) {
+			    ans.type = TYPE_INT;
+			    if (eop == EOP_BITXOR)
+				ans.v.num = lhs.v.num ^ rhs.v.num;
+			    else if (eop == EOP_BITAND)
+				ans.v.num = lhs.v.num & rhs.v.num;
+			    else if (eop == EOP_BITOR)
+				ans.v.num = lhs.v.num | rhs.v.num;
+			    else
+				errlog("RUN: Impossible opcode in bitwise ops: %d\n", eop);
+			} else {
+			    ans.type = TYPE_ERR;
+			    ans.v.err = E_TYPE;
+			}
+
+			free_var(lhs);
+			free_var(rhs);
+			if (ans.type == TYPE_ERR)
+			    PUSH_ERROR(ans.v.err);
+			else
+			    PUSH(ans);
+		    }
+		    break;
+
+		case EOP_BITSHL:
+		case EOP_BITSHR:
+		    {
+			Var rhs, lhs, ans;
+
+			rhs = POP();
+			lhs = POP();
+			if (lhs.type != TYPE_INT || rhs.type != TYPE_INT) {
+			    ans.type = TYPE_ERR;
+			    ans.v.err = E_TYPE;
+			} else if (rhs.v.num > sizeof(Num) * CHAR_BIT || rhs.v.num < 0) {
+			    ans.type = TYPE_ERR;
+			    ans.v.err = E_INVARG;
+			} else if (rhs.v.num == sizeof(Num) * CHAR_BIT) {
+			    ans.type = TYPE_INT;
+			    ans.v.num = 0;
+			} else if (rhs.v.num == 0) {
+			    ans.type = TYPE_INT;
+			    ans.v.num = lhs.v.num;
+			} else {
+
+#define MASK(n) (~(Num)(~(UNum)0 << sizeof(Num) * CHAR_BIT - (n)))
+#define SHIFTR(n, m) ((Num)((UNum)n >> m) & MASK(m))
+
+			    ans.type = TYPE_INT;
+			    if (eop == EOP_BITSHL)
+				ans.v.num = lhs.v.num << rhs.v.num;
+			    else if (eop == EOP_BITSHR)
+				ans.v.num = SHIFTR(lhs.v.num, rhs.v.num);
+			    else
+				errlog("RUN: Impossible opcode in bitwise ops: %d\n", eop);
+			}
+
+			free_var(lhs);
+			free_var(rhs);
+			if (ans.type == TYPE_ERR)
+			    PUSH_ERROR(ans.v.err);
+			else
+			    PUSH(ans);
+		    }
+		    break;
+
+		case EOP_COMPLEMENT:
+		    {
+			Var arg, ans;
+
+			arg = POP();
+			if (arg.type == TYPE_INT) {
+			    ans.type = TYPE_INT;
+			    ans.v.num = ~arg.v.num;
+			} else {
+			    ans.type = TYPE_ERR;
+			    ans.v.err = E_TYPE;
+			}
+
+			free_var(arg);
+			if (ans.type == TYPE_ERR)
+			    PUSH_ERROR(ans.v.err);
+			else
+			    PUSH(ans);
 		    }
 		    break;
 
@@ -2593,9 +2692,9 @@ run_interpreter(char raise, enum error e,
 	Var handled, traceback;
 	int i;
 
-	h = db_find_callable_verb(new_obj(SYSTEM_OBJECT), handler_verb_name);
+	h = db_find_callable_verb(Var::new_obj(SYSTEM_OBJECT), handler_verb_name);
 	if (do_db_tracebacks && h.ptr) {
-	    hret = do_server_verb_task(new_obj(SYSTEM_OBJECT), handler_verb_name,
+	    hret = do_server_verb_task(Var::new_obj(SYSTEM_OBJECT), handler_verb_name,
 				       var_ref(args), h,
 				       activ_stack[0].player, "", &handled,
 				       0/*no-traceback*/);
@@ -2759,7 +2858,7 @@ do_input_task(Objid user, Parsed_Command * pc, Objid recv, db_verb_handle vh)
     top_activ_stack = 0;
 
     RUN_ACTIV.rt_env = env = new_rt_env(prog->num_var_names);
-    RUN_ACTIV._this = new_obj(recv);
+    RUN_ACTIV._this = Var::new_obj(recv);
     RUN_ACTIV.player = user;
     RUN_ACTIV.progr = db_verb_owner(vh);
     RUN_ACTIV.recv = recv;
@@ -3211,11 +3310,11 @@ read_activ_as_pi(activation * a)
      * write `vloc' as an object number.
      */
     if (dbio_input_version < DBV_This)
-	a->_this = new_obj(a->recv);
+	a->_this = Var::new_obj(a->recv);
     else
 	a->_this = _this;
     if (dbio_input_version < DBV_Anon)
-	a->vloc = new_obj(vloc_oid);
+	a->vloc = Var::new_obj(vloc_oid);
     else
 	a->vloc = vloc;
 
@@ -3264,9 +3363,12 @@ Var *
 reorder_rt_env(Var * old_rt_env, const char **old_names,
 	       int old_size, Program * prog)
 {
-    /* reorder old_rt_env, which is aligned according to old_names, 
+    /* reorder old_rt_env, which is aligned according to old_names,
        to align to prog->var_names -- return the new rt_env
        after freeing old_rt_env and old_names */
+    /* while the database is being loaded, a rt_env may directly or indirectly
+       reference yet unloaded anonymous objects.  defer freeing these until
+       loading is complete. see `free_reordered_rt_env_values()' */
 
     unsigned size = prog->num_var_names;
     Var *rt_env = new_rt_env(size);
@@ -3285,12 +3387,23 @@ reorder_rt_env(Var * old_rt_env, const char **old_names,
 	    rt_env[i] = var_ref(old_rt_env[slot]);
     }
 
+    for (i = 0; i < old_size; i++) {
+	temp_vars = listappend(temp_vars, old_rt_env[i]);
+	old_rt_env[i] = var_ref(none);
+    }
+
     free_rt_env(old_rt_env, old_size);
     for (i = 0; i < old_size; i++)
 	free_str(old_names[i]);
     myfree((void *) old_names, M_NAMES);
 
     return rt_env;
+}
+
+void
+free_reordered_rt_env_values(void)
+{
+    free_var(temp_vars);
 }
 
 void

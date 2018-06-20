@@ -20,7 +20,7 @@
 
 #include "my-string.h"
 
-#include "structures.h"
+#include "options.h"
 
 /* See "Concurrent Cycle Collection in Reference Counted Systems",
  * (Bacon and Rajan, 2001) for a description of the cycle collection
@@ -117,30 +117,6 @@ typedef enum Memory_Type {
 extern char *str_dup(const char *);
 extern const char *str_ref(const char *);
 
-static inline Var
-str_dup_to_var(const char *s)
-{
-    Var r;
-
-    r.type = TYPE_STR;
-    r.v.str = str_dup(s);
-
-    return r;
-}
-
-static inline Var
-str_ref_to_var(const char *s)
-{
-    Var r;
-
-    r.type = TYPE_STR;
-    r.v.str = str_ref(s);
-
-    return r;
-}
-
-extern Var memory_usage(void);
-
 extern void myfree(void *where, Memory_Type type);
 extern void *mymalloc(unsigned size, Memory_Type type);
 extern void *myrealloc(void *where, unsigned size, Memory_Type type);
@@ -162,11 +138,5 @@ free_str(const char *s)
 #define memo_strlen(X)		strlen(X)
 
 #endif /* MEMO_STRLEN */
-
-static inline bool
-is_str(Var v)
-{
-    return TYPE_STR == v.type;
-}
 
 #endif				/* Storage_h */

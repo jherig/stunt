@@ -2,29 +2,162 @@ require 'test_helper'
 
 class TestAlgorithms < Test::Unit::TestCase
 
-  def test_that_base64_encoding_works
+  def test_that_encode_base64_works
     run_test_as('programmer') do
+      assert_equal '', encode_base64('')
+      assert_equal 'YQ==', encode_base64('a')
+      assert_equal 'YWE=', encode_base64('aa')
+      assert_equal 'YWFh', encode_base64('aaa')
+      assert_equal '/w==', encode_base64('~FF')
+      assert_equal '+w==', encode_base64('~FB')
       assert_equal 'MTIzNDU2Nzg5ADEyMzQ1Njc4OQAxMjM0NTY3ODkA', encode_base64('123456789~00123456789~00123456789~00')
       assert_equal "p85EjtJMFmH28gFVWjK8sCnsAoZ2zZsF5jbzLnZ4PPDRRUDH2vPHwKpDHtLQA10h9wzJGfCCZ3bkGToC8H74vsxqJ0bCw7gckR9+9/VQ2Q7Y1onahrWV4GYMSpIBK4quLn87iA==", encode_base64("~A7~CED~8E~D2L~16a~F6~F2~01UZ2~BC~B0)~EC~02~86v~CD~9B~05~E66~F3.vx<~F0~D1E@~C7~DA~F3~C7~C0~AAC~1E~D2~D0~03]!~F7~0C~C9~19~F0~82gv~E4~19:~02~F0~7E~F8~BE~CCj'F~C2~C3~B8~1C~91~1F~7E~F7~F5P~D9~0E~D8~D6~89~DA~86~B5~95~E0f~0CJ~92~01+~8A~AE.~7F;~88")
     end
   end
 
-  def test_that_base64_decoding_works
+  def test_that_url_safe_encode_base64_works
     run_test_as('programmer') do
+      assert_equal '', encode_base64('', 1)
+      assert_equal 'YQ', encode_base64('a', 1)
+      assert_equal 'YWE', encode_base64('aa', 1)
+      assert_equal 'YWFh', encode_base64('aaa', 1)
+      assert_equal '_w', encode_base64('~FF', 1)
+      assert_equal '-w', encode_base64('~FB', 1)
+      assert_equal 'MTIzNDU2Nzg5ADEyMzQ1Njc4OQAxMjM0NTY3ODkA', encode_base64('123456789~00123456789~00123456789~00', 1)
+      assert_equal "p85EjtJMFmH28gFVWjK8sCnsAoZ2zZsF5jbzLnZ4PPDRRUDH2vPHwKpDHtLQA10h9wzJGfCCZ3bkGToC8H74vsxqJ0bCw7gckR9-9_VQ2Q7Y1onahrWV4GYMSpIBK4quLn87iA", encode_base64("~A7~CED~8E~D2L~16a~F6~F2~01UZ2~BC~B0)~EC~02~86v~CD~9B~05~E66~F3.vx<~F0~D1E@~C7~DA~F3~C7~C0~AAC~1E~D2~D0~03]!~F7~0C~C9~19~F0~82gv~E4~19:~02~F0~7E~F8~BE~CCj'F~C2~C3~B8~1C~91~1F~7E~F7~F5P~D9~0E~D8~D6~89~DA~86~B5~95~E0f~0CJ~92~01+~8A~AE.~7F;~88", 1)
+    end
+  end
+
+  def test_that_encode_base64_expects_moo_binary_string_input
+    run_test_as('programmer') do
+      assert_equal 'Zm9vYmFy', encode_base64('~66~6f~6f~62~61~72')
+      assert_equal 'Zm9vYmFy', encode_base64('~66~6f~6f~62~61~72', 1)
+    end
+  end
+
+  def test_that_encode_base64_on_bad_moo_binary_string_input_fails
+    run_test_as('programmer') do
+      assert_equal E_INVARG, encode_base64('~00~#!~00')
+      assert_equal E_INVARG, encode_base64('~00~#!~00', 1)
+    end
+  end
+
+  def test_that_encode_base64_gets_the_length_correct
+    run_test_as('programmer') do
+      assert_equal 4, simplify(command(%Q|; return length(encode_base64("a"));|))
+      assert_equal 4, simplify(command(%Q|; return length(encode_base64("aa"));|))
+      assert_equal 4, simplify(command(%Q|; return length(encode_base64("aaa"));|))
+    end
+  end
+
+  def test_that_url_safe_encode_base64_gets_the_length_correct
+    run_test_as('programmer') do
+      assert_equal 2, simplify(command(%Q|; return length(encode_base64("a", 1));|))
+      assert_equal 3, simplify(command(%Q|; return length(encode_base64("aa", 1));|))
+      assert_equal 4, simplify(command(%Q|; return length(encode_base64("aaa", 1));|))
+    end
+  end
+
+  def test_that_decode_base64_works
+    run_test_as('programmer') do
+      assert_equal 'a', decode_base64('YQ==')
+      assert_equal 'aa', decode_base64('YWE=')
+      assert_equal 'aaa', decode_base64('YWFh')
+      assert_equal '~FF', decode_base64('/w==')
+      assert_equal '~FB', decode_base64('+w==')
       assert_equal '123456789~00123456789~00123456789~00', decode_base64('MTIzNDU2Nzg5ADEyMzQ1Njc4OQAxMjM0NTY3ODkA')
       assert_equal "~A7~CED~8E~D2L~16a~F6~F2~01UZ2~BC~B0)~EC~02~86v~CD~9B~05~E66~F3.vx<~F0~D1E@~C7~DA~F3~C7~C0~AAC~1E~D2~D0~03]!~F7~0C~C9~19~F0~82gv~E4~19:~02~F0~7E~F8~BE~CCj'F~C2~C3~B8~1C~91~1F~7E~F7~F5P~D9~0E~D8~D6~89~DA~86~B5~95~E0f~0CJ~92~01+~8A~AE.~7F;~88", decode_base64("p85EjtJMFmH28gFVWjK8sCnsAoZ2zZsF5jbzLnZ4PPDRRUDH2vPHwKpDHtLQA10h9wzJGfCCZ3bkGToC8H74vsxqJ0bCw7gckR9+9/VQ2Q7Y1onahrWV4GYMSpIBK4quLn87iA==")
     end
   end
 
+  def test_that_url_safe_decode_base64_works
+    run_test_as('programmer') do
+      assert_equal 'a', decode_base64('YQ', 1)
+      assert_equal 'aa', decode_base64('YWE', 1)
+      assert_equal 'aaa', decode_base64('YWFh', 1)
+      assert_equal '~FF', decode_base64('_w', 1)
+      assert_equal '~FB', decode_base64('-w', 1)
+      assert_equal '123456789~00123456789~00123456789~00', decode_base64('MTIzNDU2Nzg5ADEyMzQ1Njc4OQAxMjM0NTY3ODkA', 1)
+      assert_equal "~A7~CED~8E~D2L~16a~F6~F2~01UZ2~BC~B0)~EC~02~86v~CD~9B~05~E66~F3.vx<~F0~D1E@~C7~DA~F3~C7~C0~AAC~1E~D2~D0~03]!~F7~0C~C9~19~F0~82gv~E4~19:~02~F0~7E~F8~BE~CCj'F~C2~C3~B8~1C~91~1F~7E~F7~F5P~D9~0E~D8~D6~89~DA~86~B5~95~E0f~0CJ~92~01+~8A~AE.~7F;~88", decode_base64("p85EjtJMFmH28gFVWjK8sCnsAoZ2zZsF5jbzLnZ4PPDRRUDH2vPHwKpDHtLQA10h9wzJGfCCZ3bkGToC8H74vsxqJ0bCw7gckR9-9_VQ2Q7Y1onahrWV4GYMSpIBK4quLn87iA", 1)
+    end
+  end
+
+  def test_that_bad_base64_strings_fail
+    run_test_as('programmer') do
+      assert_equal E_INVARG, decode_base64('@@@@')
+      assert_equal E_INVARG, decode_base64('@@@@', 1)
+    end
+  end
+
+  def test_that_decode_base64_does_not_expect_moo_binary_string_input
+    run_test_as('programmer') do
+      assert_equal E_INVARG, decode_base64('~5A~6D~39~76~59~6D~46~79')
+      assert_equal E_INVARG, decode_base64('~5A~6D~39~76~59~6D~46~79', 1)
+    end
+  end
+
+  def test_that_decode_base64_padding_is_required_in_standard_mode
+    run_test_as('programmer') do
+      assert_equal 'test', decode_base64('dGVzdA==')
+      assert_equal E_INVARG, decode_base64('dGVzdA=')
+      assert_equal E_INVARG, decode_base64('dGVzdA')
+    end
+  end
+
+  def test_that_decode_base64_padding_is_optional_in_url_safe_mode
+    run_test_as('programmer') do
+      assert_equal 'test', decode_base64('dGVzdA==', 1)
+      assert_equal 'test', decode_base64('dGVzdA=', 1)
+      assert_equal 'test', decode_base64('dGVzdA', 1)
+    end
+  end
+
+  def test_that_decode_base64_does_not_allow_embedded_padding
+    run_test_as('programmer') do
+      assert_equal E_INVARG, decode_base64('dGV=zdA=')
+      assert_equal E_INVARG, decode_base64('dGV=zdA=', 1)
+    end
+  end
+
+  def test_that_decode_base64_does_not_allow_more_than_two_characters_of_padding
+    run_test_as('programmer') do
+      assert_equal E_INVARG, decode_base64('dGVzd===')
+      assert_equal E_INVARG, decode_base64('dGVzd===', 1)
+    end
+  end
+
+  def test_that_decode_base64_requires_at_least_two_characters_of_input
+    run_test_as('programmer') do
+      assert_equal E_INVARG, decode_base64('A===')
+      assert_equal E_INVARG, decode_base64('A', 1)
+    end
+  end
+
+  def test_that_decode_base64_gets_the_length_correct
+    run_test_as('programmer') do
+      assert_equal 1, simplify(command(%Q|; return length(decode_base64("YQ=="));|))
+      assert_equal 2, simplify(command(%Q|; return length(decode_base64("YWE="));|))
+      assert_equal 3, simplify(command(%Q|; return length(decode_base64("YWFh"));|))
+    end
+  end
+
+  def test_that_url_safe_decode_base64_gets_the_length_correct
+    run_test_as('programmer') do
+      assert_equal 1, simplify(command(%Q|; return length(decode_base64("YQ", 1));|))
+      assert_equal 2, simplify(command(%Q|; return length(decode_base64("YWE", 1));|))
+      assert_equal 3, simplify(command(%Q|; return length(decode_base64("YWFh", 1));|))
+    end
+  end
+
   def test_that_a_variety_of_fuzzy_inputs_base64_encode_decode_correctly
     run_test_as('wizard') do
-      100.times do
-        s = (1..20).inject('') { |a, i| a + "~#{'%02X' % rand(256)}" }
+      100.times do |i|
+        s = (1..rand(20)).inject('') { |a| a + "~#{'%02X' % rand(256)}" }
         s = simplify command %Q|; return encode_binary(decode_binary("#{s}"));|
         server_log s
-        v = encode_base64(s)
-        x = decode_base64(v)
-        assert_equal s, x
+        u = encode_base64(s, i % 2)
+        t = decode_base64(u, i % 2)
+        assert_equal s, t
       end
     end
   end
@@ -333,20 +466,6 @@ class TestAlgorithms < Test::Unit::TestCase
     end
   end
 
-  def test_that_encoding_and_decoding_bad_binary_strings_does_not_crash_the_server
-    run_test_as('programmer') do
-      assert_equal E_INVARG, encode_base64('~00~#!~00')
-      assert_equal E_INVARG, decode_base64('~00~#!~00')
-    end
-  end
-
-  def test_that_bad_base64_strings_fail
-    run_test_as('programmer') do
-      assert_equal E_INVARG, decode_base64('MTIzNDU2Nzg5ADEyMzQ1N')
-      assert_equal E_INVARG, decode_base64('///')
-    end
-  end
-
   def test_that_specifying_fake_hash_algorithms_fails
     run_test_as('programmer') do
       assert_equal E_INVARG, string_hash("abc", "bozo")
@@ -439,6 +558,62 @@ class TestAlgorithms < Test::Unit::TestCase
       assert_equal "900150983CD24FB0D6963F7D28E17F72", binary_hash("abc", "MD5")
       assert_equal "A9993E364706816ABA3E25717850C26C9CD0D89D", binary_hash("abc", "SHA1")
       assert_equal "BA7816BF8F01CFEA414140DE5DAE2223B00361A396177A9CB410FF61F20015AD", binary_hash("abc", "SHA256")
+    end
+  end
+
+  def test_that_value_hash_can_return_a_binary_string
+    run_test_as('programmer') do
+      assert_equal "99914B932BD37A50B983C5E7C90AE93B", value_hash([], "MD5", 0)
+      assert_equal "~99~91~4B~93~2B~D3~7A~50~B9~83~C5~E7~C9~0A~E9~3B", value_hash([], "MD5", 1)
+    end
+  end
+
+  def test_that_string_hash_can_return_a_binary_string
+    run_test_as('programmer') do
+      assert_equal "D41D8CD98F00B204E9800998ECF8427E", string_hash("", "MD5", 0)
+      assert_equal "~D4~1D~8C~D9~8F~00~B2~04~E9~80~09~98~EC~F8~42~7E", string_hash("", "MD5", 1)
+    end
+  end
+
+  def test_that_binary_hash_can_return_a_binary_string
+    run_test_as('programmer') do
+      assert_equal "CA9C491AC66B2C62500882E93F3719A8", binary_hash("~00~00~00~00~00", "MD5", 0)
+      assert_equal "~CA~9C~49~1A~C6~6B~2C~62~50~08~82~E9~3F~37~19~A8", binary_hash("~00~00~00~00~00", "MD5", 1)
+    end
+  end
+
+  def test_that_value_hmac_can_return_a_binary_string
+    run_test_as('programmer') do
+      assert_equal "140B47411F10521CC48851F43C9ABE73016E1D45627C8523D25CBF7FE64F8B03", value_hmac("", "", "sha256", 0)
+      assert_equal "~14~0B~47~41~1F~10~52~1C~C4~88~51~F4~3C~9A~BE~73~01~6E~1D~45~62~7C~85~23~D2~5C~BF~7F~E6~4F~8B~03", value_hmac("", "", "sha256", 1)
+    end
+  end
+
+  def test_that_string_hmac_can_return_a_binary_string
+    run_test_as('programmer') do
+      assert_equal "B613679A0814D9EC772F95D778C35FC5FF1697C493715653C6C712144292C5AD", string_hmac("", "", "sha256", 0)
+      assert_equal "~B6~13~67~9A~08~14~D9~EC~77~2F~95~D7~78~C3~5F~C5~FF~16~97~C4~93~71~56~53~C6~C7~12~14~42~92~C5~AD", string_hmac("", "", "sha256", 1)
+    end
+  end
+
+  def test_that_binary_hmac_can_return_a_binary_string
+    run_test_as('programmer') do
+      assert_equal "B613679A0814D9EC772F95D778C35FC5FF1697C493715653C6C712144292C5AD", binary_hmac("", "", "sha256", 0)
+      assert_equal "~B6~13~67~9A~08~14~D9~EC~77~2F~95~D7~78~C3~5F~C5~FF~16~97~C4~93~71~56~53~C6~C7~12~14~42~92~C5~AD", binary_hmac("", "", "sha256", 1)
+    end
+  end
+
+  def test_that_hash_lengths_are_correct
+    run_test_as('programmer') do
+      assert_equal 96, simplify(command(%Q|; return length(string_hash("", "sha256", 1));|))
+      assert_equal 64, simplify(command(%Q|; return length(string_hash("", "sha256", 0));|))
+    end
+  end
+
+  def test_that_hmac_lengths_are_correct
+    run_test_as('programmer') do
+      assert_equal 96, simplify(command(%Q|; return length(string_hmac("", "", "sha256", 1));|))
+      assert_equal 64, simplify(command(%Q|; return length(string_hmac("", "", "sha256", 0));|))
     end
   end
 
@@ -722,7 +897,7 @@ class TestAlgorithms < Test::Unit::TestCase
     end
   end
 
-  def test_that_bcrypt_compatible_salt_prefix_may_specify_cost_factor
+  def test_that_bcrypt_compatible_salt_may_specify_cost_factor
     run_test_as('programmer') do
       assert_equal "$2a$05$KRGxLBS0Lxe3KBCwKxOzLeMe5OhXhsCBVMLq7IYo9z2kiiCZMSmz6", crypt("foobar", "$2a$05$KRGxLBS0Lxe3KBCwKxOzLe")
     end

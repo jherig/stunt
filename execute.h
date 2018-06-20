@@ -118,7 +118,6 @@ extern enum outcome resume_from_previous_vm(vm the_vm, Var value);
 extern int task_timed_out;
 extern void abort_running_task(void);
 extern void print_error_backtrace(const char *, void (*)(const char *));
-extern void output_to_log(const char *);
 extern Var caller();
 
 extern void write_activ_as_pi(activation);
@@ -129,6 +128,7 @@ int read_rt_env(const char ***old_names, Var ** rt_env,
 		int *old_size);
 Var *reorder_rt_env(Var * old_rt_env, const char **old_names,
 		    int old_size, Program * prog);
+extern void free_reordered_rt_env_values(void);
 extern void write_activ(activation a);
 extern int read_activ(activation * a, int which_vector);
 
